@@ -1,3 +1,4 @@
+import time
 import sqlite3
 from pathlib import Path
 
@@ -29,6 +30,30 @@ def init_db() -> None:
                 PRIMARY KEY (guild_id, user_id)
             );
             """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def update_last_active(guild_id: int, user_id: int, timestamp: int | None = None) -> None:
+    """
+    Insert or update the last_active_ts for a given user in a given guild.
+    Uses a Unix timestamp (int seconds since epoch).
+    """
+    if timestamp is None:
+        timestamp = int(time.time())
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO user_activity (guild_id, user_id, last_active_ts)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, user_id)
+            DO UPDATE SET last_active_ts = excluded.last_active_ts;
+            """,
+            (str(guild_id), str(user_id), timestamp),
         )
         conn.commit()
     finally:
