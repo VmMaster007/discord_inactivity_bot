@@ -81,3 +81,24 @@ def get_last_active(guild_id: int, user_id: int) -> int | None:
         return int(row[0])
     finally:
         conn.close()
+
+def get_inactive_users(guild_id: int, before_ts: int) -> list[tuple[str, int]]:
+    """
+    Return a list of (user_id, last_active_ts) for users in a guild
+    whose last_active_ts is older than before_ts.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT user_id, last_active_ts
+            FROM user_activity
+            WHERE guild_id = ? AND last_active_ts < ?
+            """,
+            (str(guild_id), before_ts),
+        )
+        rows = cur.fetchall()
+        return [(row[0], int(row[1])) for row in rows]
+    finally:
+        conn.close()
