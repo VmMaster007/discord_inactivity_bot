@@ -58,3 +58,26 @@ def update_last_active(guild_id: int, user_id: int, timestamp: int | None = None
         conn.commit()
     finally:
         conn.close()
+
+def get_last_active(guild_id: int, user_id: int) -> int | None:
+    """
+    Get the last_active_ts for a given user in a given guild.
+    Returns an int (Unix timestamp) or None if we have no record.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT last_active_ts
+            FROM user_activity
+            WHERE guild_id = ? AND user_id = ?
+            """,
+            (str(guild_id), str(user_id)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return int(row[0])
+    finally:
+        conn.close()
