@@ -7,3 +7,6 @@ __pycache__/
 
 # Environment variables / secrets
 .env
+
+# Ignores the database created as per server or session maybe different
+activity.db
