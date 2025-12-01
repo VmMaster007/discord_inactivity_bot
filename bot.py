@@ -3,6 +3,9 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from db import init_db
+
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -19,15 +22,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
+# Everytime a command is made create a new bot.command with the function under it!
 @bot.command()
 async def ping(ctx):
     await ctx.send("Pong!")
 
 
 def main():
+    # Initialize the database (create tables if needed)
+    init_db()
+
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_TOKEN not set in .env file")
+    
     bot.run(token)
 
 
