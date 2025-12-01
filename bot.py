@@ -8,6 +8,9 @@ load_dotenv()
 
 # We'll expand these intents later when we start tracking activity
 intents = discord.Intents.default()
+intents.message_content = True   # so the bot can read command messages like !ping
+intents.members = True           # for tracking users
+intents.presences = True         # game activity (Phas/Marvel Rivals)
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -15,6 +18,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong!")
 
 
 def main():
