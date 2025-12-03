@@ -8,6 +8,7 @@
 # -------------------------------------------------
 
 import os
+import sqlite3
 from datetime import datetime, timezone, timedelta
 
 import discord
@@ -39,6 +40,26 @@ PROTECTED_ROLE_IDS = [
     1445172088963993610,  # Bots
     1444715664110649394,  # Moderator
 ]
+
+# --- Quiet server pings config ---
+
+# How long a channel can be silent before the bot pokes it
+QUIET_TIMEOUT_HOURS = 9  # change to whatever you want
+
+# Channels to monitor for silence
+# Replace these with real channel IDs from Discord (right-click channel → Copy ID)
+QUIET_CHANNEL_IDS = [
+    1442989806517747724,  #lounge
+]
+
+# AFK settings
+AFK_ROLE_NAME = "👻 AFK Spirit"  # must match the role name in Discord
+AFK_INACTIVE_DAYS = 7           # how many days of inactivity before AFK
+AFK_NICK_PREFIX = "👻 "          # what to add in front of nicknames
+
+# In-memory tracking: last message & last quiet ping per (guild_id, channel_id)
+channel_last_message: dict[tuple[int, int], datetime] = {}
+last_quiet_ping: dict[tuple[int, int], datetime] = {}
 
 # Games that count as "activity" when played (presence-based)
 TRACKED_GAMES = {"Phasmophobia"}
@@ -73,7 +94,6 @@ def mark_active(member: discord.Member) -> None:
         return  # only care about guilds
 
     update_last_active(member.guild.id, member.id)
-
 
 # ------------------------ BOT SETUP ------------------------
 
@@ -281,6 +301,101 @@ async def before_notify_inactive_members() -> None:
     await bot.wait_until_ready()
 
 
+# ------------------------ AFK ROLE + NICKNAME UPDATER ------------------------
+
+@tasks.loop(hours=24)  # change to minutes=1 for testing
+async def update_afk_roles_and_nicks() -> None:
+    """
+    Once a day:
+    - Find users who have been inactive for AFK_INACTIVE_DAYS.
+    - Give them the AFK role + ghosty nickname prefix.
+    - Remove AFK role + prefix when they become active again.
+    """
+    await bot.wait_until_ready()
+
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    afk_cutoff_ts = now_ts - AFK_INACTIVE_DAYS * 86400
+
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        print("[AFK] Guild not found.")
+        return
+
+    afk_role = discord.utils.get(guild.roles, name=AFK_ROLE_NAME)
+    if afk_role is None:
+        print(f"[AFK] Role '{AFK_ROLE_NAME}' not found in guild.")
+        return
+
+    # Use your existing DB helper – this already matches whatever db.py does
+    rows = get_inactive_users(guild.id, afk_cutoff_ts)
+    afk_ids = {user_id for (user_id, _last_ts) in rows}
+
+    for member in guild.members:
+        if member.bot:
+            continue
+
+        # If you want protected roles to be immune to AFK tags:
+        if any(role.id in PROTECTED_ROLE_IDS for role in member.roles):
+            continue
+
+        is_afk = member.id in afk_ids
+        has_afk_role = afk_role in member.roles
+        current_nick = member.nick or member.name
+        has_prefix = current_nick.startswith(AFK_NICK_PREFIX)
+
+        # --- User should be AFK but isn't fully tagged yet ---
+        if is_afk and not has_afk_role:
+            # Add AFK role
+            try:
+                await member.add_roles(
+                    afk_role,
+                    reason=f"Inactive for {AFK_INACTIVE_DAYS}+ days (AFK tagging)",
+                )
+                print(f"[AFK] Added role to {member} in {guild.name}")
+            except discord.Forbidden:
+                print(f"[AFK] Missing permission to add role for {member}")
+            except discord.HTTPException as e:
+                print(f"[AFK] HTTP error adding role: {e}")
+
+            # Add ghost prefix to nickname (if not already present)
+            if not has_prefix:
+                base = member.nick if member.nick else member.name
+                new_nick = (AFK_NICK_PREFIX + base)[:32]  # Discord nick limit
+
+                try:
+                    await member.edit(nick=new_nick, reason="Marked AFK")
+                    print(f"[AFK] Set nickname for {member} to '{new_nick}'")
+                except discord.Forbidden:
+                    print(f"[AFK] Missing permission to edit nickname for {member}")
+                except discord.HTTPException as e:
+                    print(f"[AFK] HTTP error editing nickname: {e}")
+
+        # --- User is no longer AFK but still tagged ---
+        elif (not is_afk) and has_afk_role:
+            # Remove AFK role
+            try:
+                await member.remove_roles(
+                    afk_role,
+                    reason="User became active again (AFK cleared)",
+                )
+                print(f"[AFK] Removed role from {member} in {guild.name}")
+            except discord.Forbidden:
+                print(f"[AFK] Missing permission to remove role for {member}")
+            except discord.HTTPException as e:
+                print(f"[AFK] HTTP error removing role: {e}")
+
+            # Strip ghost prefix from nickname if it’s there
+            if has_prefix:
+                stripped = current_nick[len(AFK_NICK_PREFIX):] or None
+
+                try:
+                    await member.edit(nick=stripped, reason="Cleared AFK status")
+                    print(f"[AFK] Restored nickname for {member} to '{stripped}'")
+                except discord.Forbidden:
+                    print(f"[AFK] Missing permission to restore nickname for {member}")
+                except discord.HTTPException as e:
+                    print(f"[AFK] HTTP error restoring nickname: {e}")
+
 # ------------------------ EVENTS ------------------------
 
 @bot.event
@@ -295,6 +410,16 @@ async def on_ready() -> None:
         notify_inactive_members.start()
         print("Notify inactive members task started.")
 
+    # Start quiet-channel checker if not already running
+    if not check_quiet_channels.is_running():
+        check_quiet_channels.start()
+        print("Quiet channel checker started.")
+
+    # Start AFK role + nickname updater
+    if not update_afk_roles_and_nicks.is_running():
+        update_afk_roles_and_nicks.start()
+        print("AFK role + nickname updater started.")
+
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
@@ -304,6 +429,12 @@ async def on_message(message: discord.Message) -> None:
 
     if message.guild is None:
         return  # ignore DMs
+    
+    # Track last message per channel for quiet-ping feature
+    if message.guild is not None:  # ignore DMs
+        now = datetime.now(timezone.utc)
+        key = (message.guild.id, message.channel.id)
+        channel_last_message[key] = now
 
     mark_active(message.author)
 
@@ -429,6 +560,43 @@ async def lastseen(ctx: commands.Context, member: discord.Member | None = None) 
         f"**{display_name}** was last active at **{when_str}** ({ago_str} ago)."
     )
 
+@tasks.loop(minutes=10)
+async def check_quiet_channels():
+    """Periodically check if monitored channels have gone quiet."""
+    if not bot.is_ready():
+        return
+
+    now = datetime.now(timezone.utc)
+
+    for guild in bot.guilds:
+        for channel_id in QUIET_CHANNEL_IDS:
+            channel = guild.get_channel(channel_id)
+            if channel is None:
+                continue
+
+            key = (guild.id, channel_id)
+            last_msg = channel_last_message.get(key)
+
+            # If we've never seen a message since the bot started, skip
+            if last_msg is None:
+                continue
+
+            # Has the channel been quiet long enough?
+            if now - last_msg < timedelta(hours=QUIET_TIMEOUT_HOURS):
+                continue
+
+            # Avoid spamming: only ping once per quiet window
+            last_ping = last_quiet_ping.get(key)
+            if last_ping is not None and now - last_ping < timedelta(hours=QUIET_TIMEOUT_HOURS):
+                continue
+
+            # Try to send the ghost prompt
+            try:
+                await channel.send("📻 *Static fills the radio… the ghost hasn’t been heard in hours.* Who’s brave enough to talk?")
+                last_quiet_ping[key] = now
+            except discord.Forbidden:
+                # No perms to send in that channel
+                continue
 
 # ------------------------ ENTRY POINT ------------------------
 
