@@ -1,0 +1,82 @@
+body {
+  background-color: #050608;
+  color: #f9fafb;
+}
+
+/* Sidebar */
+.sidebar {
+  min-height: 100vh;
+  background: #0d1018; /* slightly lighter */
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.sidebar .nav-link {
+  color: #c5cbe5; /* brighter text */
+  border-radius: 0.75rem;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+.sidebar .nav-link.active,
+.sidebar .nav-link:hover {
+  color: #fff;
+  background: linear-gradient(135deg, #00c6ff, #0072ff);
+  box-shadow: 0 0 12px rgba(0, 198, 255, 0.35);
+}
+
+.brand-pill {
+  border-radius: 999px;
+  background: rgba(0, 198, 255, 0.1);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  color: #e5f7ff;
+}
+
+/* Cards / panels */
+.card-panel {
+  background: #171b2b; /* lighter than before */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1.25rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+}
+.card-panel .card-body {
+  color: #f5f7ff;
+}
+
+/* Make “muted” text still readable on dark bg */
+.text-muted {
+  color: #c0c7dd !important;
+}
+
+/* Tables */
+.table-dark {
+  color: #f9fafb;
+  background-color: #151827;
+}
+.table-dark thead tr {
+  background-color: #191c2f;
+}
+.table-dark tbody tr:nth-of-type(odd) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.table-dark tbody tr:nth-of-type(even) {
+  background-color: rgba(255, 255, 255, 0.01);
+}
+.table-dark td,
+.table-dark th {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Buttons */
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #f9fafb;
+}
+.btn-outline-light:hover {
+  background-color: #f9fafb;
+  color: #050608;
+}
+
+/* Small helper for badges */
+.badge.bg-secondary {
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  color: #e1e5ff;
+}

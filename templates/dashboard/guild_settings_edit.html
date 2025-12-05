@@ -1,0 +1,94 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">
+      Edit settings – {{ guild_settings.guild_name|default:"(unnamed guild)" }}
+    </h1>
+    <p class="text-muted mb-0">
+      Guild ID: <code>{{ guild_settings.guild_id }}</code>
+    </p>
+  </div>
+  <a href="{% url 'dashboard:guild_settings_list' %}" class="btn btn-outline-light btn-sm">
+    Back to list
+  </a>
+</div>
+
+<div class="card card-panel">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {% csrf_token %}
+
+      <div class="mb-3">
+        <label class="form-label" for="id_inactivity_days">
+          {{ form.inactivity_days.label }}
+        </label>
+        {{ form.inactivity_days }}
+        <div class="form-text text-muted">
+          How many days of no activity before someone is treated as inactive.
+        </div>
+        {% if form.inactivity_days.errors %}
+          <div class="text-danger small">
+            {{ form.inactivity_days.errors|join:", " }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="row">
+        <div class="col-12 col-md-6 mb-3">
+          <div class="form-check">
+            {{ form.auto_kick_enabled }}
+            <label class="form-check-label" for="id_auto_kick_enabled">
+              {{ form.auto_kick_enabled.label }}
+            </label>
+          </div>
+          <div class="form-text text-muted">
+            When enabled, the daily cleanup will remove inactive members.
+          </div>
+        </div>
+
+        <div class="col-12 col-md-6 mb-3">
+          <div class="form-check">
+            {{ form.inactivity_notifications_enabled }}
+            <label class="form-check-label" for="id_inactivity_notifications_enabled">
+              {{ form.inactivity_notifications_enabled.label }}
+            </label>
+          </div>
+          <div class="form-text text-muted">
+            Send a daily list of inactive members to your configured channel.
+          </div>
+        </div>
+
+        <div class="col-12 col-md-6 mb-3">
+          <div class="form-check">
+            {{ form.afk_system_enabled }}
+            <label class="form-check-label" for="id_afk_system_enabled">
+              {{ form.afk_system_enabled.label }}
+            </label>
+          </div>
+          <div class="form-text text-muted">
+            Control whether the AFK ghost role system is active.
+          </div>
+        </div>
+
+        <div class="col-12 col-md-6 mb-3">
+          <div class="form-check">
+            {{ form.quiet_ping_enabled }}
+            <label class="form-check-label" for="id_quiet_ping_enabled">
+              {{ form.quiet_ping_enabled.label }}
+            </label>
+          </div>
+          <div class="form-text text-muted">
+            Enable notifications for quiet channels.
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-light">
+        Save changes
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

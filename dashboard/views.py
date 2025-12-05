@@ -1,7 +1,9 @@
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
 
 from .models import GuildSettings
+from .forms import GuildSettingsForm
 
 
 @login_required
@@ -34,3 +36,23 @@ def guild_settings_list(request):
         "dashboard/guild_settings_list.html",
         {"guilds": guilds},
     )
+
+@login_required
+def edit_guild_settings(request, guild_id):
+    """Edit settings for a single guild."""
+    guild_settings = get_object_or_404(GuildSettings, pk=guild_id)
+
+    if request.method == "POST":
+        form = GuildSettingsForm(request.POST, instance=guild_settings)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Settings saved successfully.")
+            return redirect("dashboard:guild_settings_list")
+    else:
+        form = GuildSettingsForm(instance=guild_settings)
+
+    context = {
+        "guild_settings": guild_settings,
+        "form": form,
+    }
+    return render(request, "dashboard/guild_settings_edit.html", context)

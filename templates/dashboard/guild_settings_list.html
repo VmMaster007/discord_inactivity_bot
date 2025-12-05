@@ -70,7 +70,7 @@
             <td>
               <a
                 class="btn btn-sm btn-outline-light"
-                href="/admin/dashboard/guildsettings/{{ g.pk }}/change/"
+                href="{% url 'dashboard:guild_settings_edit' g.guild_id %}"
               >
                 Edit
               </a>
