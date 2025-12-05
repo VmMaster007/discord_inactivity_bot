@@ -1,0 +1,91 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Inactivity & core settings</h1>
+    <p class="text-muted mb-0">
+      Per-guild configuration used by the Phasmocademy bot.
+    </p>
+  </div>
+  <a href="/admin/dashboard/guildsettings/" class="btn btn-outline-light btn-sm">
+    Open in Django admin
+  </a>
+</div>
+
+<div class="card card-panel">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-dark table-striped align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Guild</th>
+            <th>Guild ID</th>
+            <th>Inactivity days</th>
+            <th>Auto kick</th>
+            <th>Inactivity notifications</th>
+            <th>AFK system</th>
+            <th>Quiet pings</th>
+            <th>Last updated</th>
+            <th>Admin</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for g in guilds %}
+          <tr>
+            <td>{{ g.guild_name|default:"(no name)" }}</td>
+            <td><code>{{ g.guild_id }}</code></td>
+            <td>{{ g.inactivity_days }}</td>
+            <td>
+              {% if g.auto_kick_enabled %}
+                <span class="badge bg-success">On</span>
+              {% else %}
+                <span class="badge bg-secondary">Off</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.inactivity_notifications_enabled %}
+                <span class="badge bg-success">On</span>
+              {% else %}
+                <span class="badge bg-secondary">Off</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.afk_system_enabled %}
+                <span class="badge bg-success">On</span>
+              {% else %}
+                <span class="badge bg-secondary">Off</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.quiet_ping_enabled %}
+                <span class="badge bg-success">On</span>
+              {% else %}
+                <span class="badge bg-secondary">Off</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted">
+              {{ g.last_updated|date:"Y-m-d H:i" }}
+            </td>
+            <td>
+              <a
+                class="btn btn-sm btn-outline-light"
+                href="/admin/dashboard/guildsettings/{{ g.pk }}/change/"
+              >
+                Edit
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="9" class="text-center text-muted">
+              No guild settings found yet.
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

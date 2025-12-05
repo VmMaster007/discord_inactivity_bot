@@ -14,6 +14,14 @@ from config import (
     HELP_MESSAGE,
     STAFF_CHANNEL_ID,
 )
+from db import (
+    init_db,
+    update_last_active,
+    get_last_active,
+    get_inactive_users,
+    ensure_guild_settings,
+    get_guild_settings,
+)
 
 load_dotenv()
 
@@ -256,12 +264,27 @@ async def slash_unban(
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print("------")
+
     # Sync slash commands once per session
     if not hasattr(bot, "synced"):
         await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
         bot.synced = True
         print("Slash commands synced to guild.")
 
+    # Make sure DB exists
+    init_db()
+
+    # Ensure every guild has a settings row
+    for guild in bot.guilds:
+        ensure_guild_settings(guild.id, guild.name)
+        print(f"[SETTINGS] Ensured settings for guild: {guild.name} ({guild.id})")
+
+@bot.event
+async def on_guild_join(guild: discord.Guild) -> None:
+    """When the bot joins a new server, create default settings for it."""
+    ensure_guild_settings(guild.id, guild.name)
+    print(f"[SETTINGS] Created default settings for new guild: {guild.name} ({guild.id})")
 
 # ------------------------ ENTRY POINT ------------------------
 

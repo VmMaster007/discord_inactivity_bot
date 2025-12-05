@@ -4,13 +4,14 @@ from datetime import datetime, timezone, timedelta
 from discord.ext import commands, tasks
 import discord
 
-from db import get_inactive_users
+from db import get_inactive_users, get_guild_settings
+
 from config import (
     GUILD_ID,
     STAFF_CHANNEL_ID,
     INVITE_CHANNEL_ID,
     NOTIFY_CHANNEL_ID,
-    INACTIVITY_DAYS,
+    INACTIVITY_DAYS,          # used as a fallback/default
     INACTIVITY_NOTIFY_DAYS,
     PROTECTED_ROLE_IDS,
     format_timestamp,
@@ -45,14 +46,30 @@ class Housekeeping(commands.Cog):
             print("[CLEANUP] Guild not found")
             return
 
+        # 🔧 Load per-guild settings from dashboard_guildsettings
+        settings = get_guild_settings(guild.id)
+        inactivity_days = int(settings.get("inactivity_days", INACTIVITY_DAYS))
+        auto_kick_enabled = bool(settings.get("auto_kick_enabled", 1))
+
+        # For REAL scheduled runs, respect the auto_kick_enabled toggle
+        if real_run and not auto_kick_enabled:
+            print(
+                f"[CLEANUP REAL] Auto-kick disabled for {guild.name} "
+                f"({guild.id}), skipping cleanup."
+            )
+            return
+
         now_utc = datetime.now(timezone.utc)
-        cutoff = now_utc - timedelta(days=INACTIVITY_DAYS)
+        cutoff = now_utc - timedelta(days=inactivity_days)
         cutoff_ts = int(cutoff.timestamp())
 
         mode = "REAL" if real_run else "DRY-RUN"
-        print(f"[CLEANUP {mode}] Running inactivity check, cutoff_ts={cutoff_ts}")
+        print(
+            f"[CLEANUP {mode}] Running inactivity check "
+            f"(inactivity_days={inactivity_days}, cutoff_ts={cutoff_ts})"
+        )
 
-        # Fetch inactive users from DB
+        # Fetch inactive users from DB (using cutoff timestamp)
         rows = get_inactive_users(guild.id, cutoff_ts)
 
         if not rows:
@@ -88,7 +105,7 @@ class Housekeeping(commands.Cog):
                 # DRY RUN: just log who *would* be kicked
                 preview_msg = (
                     f"[DRY RUN] Would kick **{member}** for inactivity "
-                    f"({INACTIVITY_DAYS}+ days, last seen {last_seen_str})."
+                    f"({inactivity_days}+ days, last seen {last_seen_str})."
                 )
                 if staff_channel is not None:
                     await staff_channel.send(preview_msg)
@@ -109,7 +126,7 @@ class Housekeeping(commands.Cog):
 
             dm_text = (
                 f"Hey {member.display_name},\n\n"
-                f"You’ve been inactive on **{guild.name}** for over {INACTIVITY_DAYS} days "
+                f"You’ve been inactive on **{guild.name}** for over {inactivity_days} days "
                 f"(last seen: **{last_seen_str}**).\n\n"
                 f"We’re doing a small cleanup of inactive members, so I’ve removed you from the server.\n"
                 f"If you’d like to come back, here’s a fresh invite:\n{invite.url}\n\n"
@@ -126,7 +143,7 @@ class Housekeeping(commands.Cog):
             try:
                 await guild.kick(
                     member,
-                    reason=f"Inactivity {INACTIVITY_DAYS}+ days (auto cleanup)",
+                    reason=f"Inactivity {inactivity_days}+ days (auto cleanup)",
                 )
             except discord.Forbidden:
                 print(f"[CLEANUP REAL] No permission to kick {member}.")
@@ -136,7 +153,7 @@ class Housekeeping(commands.Cog):
                 continue
 
             log_msg = (
-                f"👢 Kicked **{member}** for inactivity ({INACTIVITY_DAYS}+ days).\n"
+                f"👢 Kicked **{member}** for inactivity ({inactivity_days}+ days).\n"
                 f"Last seen: **{last_seen_str}**\n"
                 f"Rejoin invite: {invite.url}"
             )
@@ -144,7 +161,10 @@ class Housekeeping(commands.Cog):
             if staff_channel is not None:
                 await staff_channel.send(log_msg)
 
-            print(f"[CLEANUP REAL] Kicked inactive member: {member} (last_seen={last_seen_str})")
+            print(
+                f"[CLEANUP REAL] Kicked inactive member: {member} "
+                f"(last_seen={last_seen_str})"
+            )
 
         if not any_candidates:
             # This means DB had rows, but all were bots / protected roles
@@ -171,6 +191,18 @@ class Housekeeping(commands.Cog):
         guild = self.bot.get_guild(GUILD_ID)
         if guild is None:
             print(f"[NOTIFY] Guild {GUILD_ID} not found.")
+            return
+
+        # 🔧 Check if notifications are enabled in settings
+        settings = get_guild_settings(guild.id)
+        notifications_enabled = bool(
+            settings.get("inactivity_notifications_enabled", 1)
+        )
+        if not notifications_enabled:
+            print(
+                f"[NOTIFY] Inactivity notifications disabled for {guild.name} "
+                f"({guild.id}), skipping."
+            )
             return
 
         channel = guild.get_channel(NOTIFY_CHANNEL_ID)
@@ -228,7 +260,10 @@ class Housekeeping(commands.Cog):
         - It just logs who *would* be kicked to the staff channel + console
         """
         await self.run_inactivity_cleanup(real_run=False)
-        await ctx.send("Ran inactivity cleanup in DRY-RUN mode. Check staff channel + logs.")
+        await ctx.send(
+            "Ran inactivity cleanup in DRY-RUN mode. "
+            "Check staff channel + logs."
+        )
 
 
 async def setup(bot: commands.Bot) -> None:
