@@ -16,6 +16,29 @@ INVITE_CHANNEL_ID = 1445176511614418955 # channel the bot will create invites fr
 NOTIFY_CHANNEL_ID = 1445137949871182150 # channel for daily inactivity summaries
 LEAVE_LOG_CHANNEL_ID = 1452786769731784714  # For channel where leavers will be seen
 
+# ---------------- XP/COINS SYSTEM ----------------
+
+# Channel IDs (right click channel -> Copy ID)
+LEADERBOARD_CHANNEL_ID = 1453037552096510176          # REQUIRED: set this
+ANNOUNCEMENTS_CHANNEL_ID = 1445181772005638204        # REQUIRED: set this
+
+# How often to edit/update the leaderboard message
+LEADERBOARD_UPDATE_MINUTES = 10
+
+# Weekly winner role name (bot will create if missing)
+WEEKLY_CHAMP_ROLE_NAME = "👑 Weekly Champ"
+
+# Command cooldowns (seconds)
+INVESTIGATE_COOLDOWN_SECONDS = 600  # 10 minutes
+
+# Default XP settings (per day caps handled by DB)
+DEFAULT_MSG_XP = 1
+DEFAULT_MSG_DAILY_CAP = 50
+
+DEFAULT_VOICE_XP_PER_MIN = 2
+DEFAULT_VOICE_DAILY_CAP = 240
+
+
 # Roles that should NEVER be kicked
 # NOTE: If you're testing and YOU have one of these roles,
 # you will NOT appear in cleanup/dry-run results.
@@ -50,36 +73,6 @@ TRACKED_GAMES = {"Phasmophobia"}
 
 # Timezone for display
 UK_TZ = ZoneInfo("Europe/London")
-
-
-# Shared help text used by both !help and /help
-HELP_MESSAGE = (
-    "**Phasmocademy Commands**\n"
-    "\n"
-    "__General__\n"
-    "• `!ping` – Bot heartbeat.\n"
-    "• `!guildid` – Show this server's ID.\n"
-    "\n"
-    "__Activity & AFK__\n"
-    "• `!lastseen [@user]` – When a member was last active.\n"
-    "• `!cleanup_test` – Dry-run inactivity cleanup (admin).\n"
-    "\n"
-    "__Moderation (prefix)__\n"
-    "• `!clear <amount>` – Delete messages (admin).\n"
-    "• `!kick @user [reason]` – Kick a member (admin).\n"
-    "• `!ban @user [reason]` – Ban a member (admin).\n"
-    "• `!unban <user_id>` – Unban a user (admin).\n"
-    "\n"
-    "__Slash commands (with dropdowns)__\n"
-    "• `/help` – Show this help.\n"
-    "• `/kick` – Kick member (user picker).\n"
-    "• `/ban` – Ban member (user picker).\n"
-    "• `/clear` – Clear messages.\n"
-    "• `/unban` – Unban by user.\n"
-    "\n"
-    "Tip: type `/` in the chat bar to see all slash commands."
-)
-
 
 def format_timestamp(ts: int) -> str:
     """Turn a UNIX timestamp into a UK time string."""

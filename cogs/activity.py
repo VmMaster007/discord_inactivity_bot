@@ -1,10 +1,24 @@
 # cogs/activity.py
+# Activity tracking + AFK system + awarding XP for message/voice + contract progress hooks
+# (Leaderboard/shop/investigate are handled by separate cogs.)
 
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
 import discord
+import random
 
-from db import update_last_active, get_last_active, get_inactive_users
+from db import (
+    update_last_active,
+    get_last_active,
+    get_inactive_users,
+    award_xp,
+    get_contracts_for_today,
+    create_contracts_for_today,
+    add_contract_progress,
+    add_coins,
+    reset_all_progress,
+)
+
 from config import (
     UK_TZ,
     AFK_ROLE_NAME,
@@ -13,13 +27,38 @@ from config import (
     PROTECTED_ROLE_IDS,
     TRACKED_GAMES,
     GUILD_ID,
-    HELP_MESSAGE,        # 👈 add this
     format_timestamp,
+    DEFAULT_MSG_XP,
+    DEFAULT_MSG_DAILY_CAP,
+    DEFAULT_VOICE_XP_PER_MIN,
+    DEFAULT_VOICE_DAILY_CAP,
 )
 
 
+# ------------------------ Daily Contracts (same pool as investigate cog) ------------------------
+
+def generate_daily_contracts() -> list[dict]:
+    pool = [
+        {"contract_key": "messages_25", "title": "📓 Record 25 EVP Messages", "target": 25, "reward_xp": 120, "reward_coins": 80},
+        {"contract_key": "messages_40", "title": "🗒️ Log 40 Evidence Notes", "target": 40, "reward_xp": 180, "reward_coins": 120},
+        {"contract_key": "voice_20", "title": "🎙️ 20 Minutes on Site (Voice)", "target": 20, "reward_xp": 160, "reward_coins": 110},
+        {"contract_key": "voice_45", "title": "🎙️ 45 Minutes on Site (Voice)", "target": 45, "reward_xp": 260, "reward_coins": 180},
+        {"contract_key": "investigate_1", "title": "🧪 Successful Investigation (x1)", "target": 1, "reward_xp": 200, "reward_coins": 150},
+        {"contract_key": "investigate_2", "title": "🧪 Successful Investigations (x2)", "target": 2, "reward_xp": 320, "reward_coins": 240},
+    ]
+    return random.sample(pool, k=3)
+
+
+def ensure_contracts(guild_id: int, user_id: int) -> None:
+    """Create today's contracts for this user if missing."""
+    existing = get_contracts_for_today(guild_id, user_id)
+    if existing:
+        return
+    create_contracts_for_today(guild_id, user_id, generate_daily_contracts())
+
+
 class Activity(commands.Cog):
-    """Activity tracking, AFK system, and basic commands."""
+    """Activity tracking, AFK system, and the hooks that award XP for message/voice + contract progress."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -28,21 +67,21 @@ class Activity(commands.Cog):
         if not self.update_afk_roles_and_nicks.is_running():
             self.update_afk_roles_and_nicks.start()
 
+        # Start voice XP ticker (awards XP/min + voice contract progress)
+        if not self.voice_xp_tick.is_running():
+            self.voice_xp_tick.start()
+            
+
     # ------------------------ DB helper ------------------------
 
     def mark_active(self, member: discord.Member) -> None:
         """Record that this member was active just now (in the DB)."""
         if member.bot:
-            return  # ignore bots
-
+            return
         if member.guild is None:
-            return  # only care about guilds
+            return
 
-        update_last_active(
-            member.guild.id,
-            member.id,
-            member.display_name
-        )
+        update_last_active(member.guild.id, member.id, member.display_name)
 
     # ------------------------ AFK helpers ------------------------
 
@@ -56,24 +95,16 @@ class Activity(commands.Cog):
         # Remove AFK role
         if afk_role and afk_role in member.roles:
             try:
-                await member.remove_roles(
-                    afk_role,
-                    reason="User became active again",
-                )
+                await member.remove_roles(afk_role, reason="User became active again")
             except discord.Forbidden:
-                # Bot can't manage this member's roles
                 pass
 
         # Remove ghost prefix from nickname
         if member.nick and member.nick.startswith(AFK_NICK_PREFIX):
             new_nick = member.nick[len(AFK_NICK_PREFIX):].strip()
             try:
-                await member.edit(
-                    nick=new_nick or None,
-                    reason="User became active again",
-                )
+                await member.edit(nick=new_nick or None, reason="User became active again")
             except discord.Forbidden:
-                # Bot can't change this nickname
                 pass
 
     # ------------------------ AFK role + nickname updater ------------------------
@@ -101,7 +132,6 @@ class Activity(commands.Cog):
             print(f"[AFK] Role '{AFK_ROLE_NAME}' not found in guild.")
             return
 
-        # Use existing DB helper
         rows = get_inactive_users(guild.id, afk_cutoff_ts)
         afk_ids = {user_id for (user_id, _last_ts) in rows}
 
@@ -109,7 +139,6 @@ class Activity(commands.Cog):
             if member.bot:
                 continue
 
-            # Make protected roles immune to AFK tags
             if any(role.id in PROTECTED_ROLE_IDS for role in member.roles):
                 continue
 
@@ -118,7 +147,6 @@ class Activity(commands.Cog):
             current_nick = member.nick or member.name
             has_prefix = current_nick.startswith(AFK_NICK_PREFIX)
 
-            # User should be AFK but isn't fully tagged yet
             if is_afk and not has_afk_role:
                 # Add AFK role
                 try:
@@ -126,63 +154,104 @@ class Activity(commands.Cog):
                         afk_role,
                         reason=f"Inactive for {AFK_INACTIVE_DAYS}+ days (AFK tagging)",
                     )
-                    print(f"[AFK] Added role to {member} in {guild.name}")
                 except discord.Forbidden:
-                    print(f"[AFK] Missing permission to add role for {member}")
+                    pass
                 except discord.HTTPException as e:
                     print(f"[AFK] HTTP error adding role: {e}")
 
-                # Add ghost prefix to nickname (if not already present)
+                # Add nickname prefix
                 if not has_prefix:
                     base = member.nick if member.nick else member.name
-                    new_nick = (AFK_NICK_PREFIX + base)[:32]  # Discord nick limit
-
+                    new_nick = (AFK_NICK_PREFIX + base)[:32]
                     try:
                         await member.edit(nick=new_nick, reason="Marked AFK")
-                        print(f"[AFK] Set nickname for {member} to '{new_nick}'")
                     except discord.Forbidden:
-                        print(f"[AFK] Missing permission to edit nickname for {member}")
+                        pass
                     except discord.HTTPException as e:
                         print(f"[AFK] HTTP error editing nickname: {e}")
 
-            # User is no longer AFK but still tagged
             elif (not is_afk) and has_afk_role:
                 # Remove AFK role
                 try:
-                    await member.remove_roles(
-                        afk_role,
-                        reason="User became active again (AFK cleared)",
-                    )
-                    print(f"[AFK] Removed role from {member} in {guild.name}")
+                    await member.remove_roles(afk_role, reason="User became active again (AFK cleared)")
                 except discord.Forbidden:
-                    print(f"[AFK] Missing permission to remove role for {member}")
+                    pass
                 except discord.HTTPException as e:
                     print(f"[AFK] HTTP error removing role: {e}")
 
-                # Strip ghost prefix from nickname if it’s there
+                # Strip nickname prefix
                 if has_prefix:
                     stripped = current_nick[len(AFK_NICK_PREFIX):] or None
-
                     try:
                         await member.edit(nick=stripped, reason="Cleared AFK status")
-                        print(f"[AFK] Restored nickname for {member} to '{stripped}'")
                     except discord.Forbidden:
-                        print(f"[AFK] Missing permission to restore nickname for {member}")
+                        pass
                     except discord.HTTPException as e:
                         print(f"[AFK] HTTP error restoring nickname: {e}")
+
+    # ------------------------ Voice XP ticker (XP/min + contracts) ------------------------
+
+    @tasks.loop(minutes=1)
+    async def voice_xp_tick(self) -> None:
+        """Every minute, award voice XP to members currently in voice channels + progress voice contracts."""
+        await self.bot.wait_until_ready()
+
+        for guild in self.bot.guilds:
+            for vc in guild.voice_channels:
+                for member in vc.members:
+                    if member.bot:
+                        continue
+
+                    # Award XP (cap enforced in DB)
+                    award_xp(
+                        guild_id=guild.id,
+                        user_id=member.id,
+                        source="voice",
+                        amount=DEFAULT_VOICE_XP_PER_MIN,
+                        daily_cap=DEFAULT_VOICE_DAILY_CAP,
+                    )
+
+                    # Ensure + progress voice contracts (minutes)
+                    ensure_contracts(guild.id, member.id)
+
+                    completed = []
+                    completed += add_contract_progress(guild.id, member.id, "voice_20", 1)
+                    completed += add_contract_progress(guild.id, member.id, "voice_45", 1)
+
+                    await self.payout_completed_contracts(member, completed)
+
+
+
 
     # ------------------------ Events ------------------------
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        """Track message activity and clear AFK when someone talks."""
+        """Track message activity, award XP, progress contracts, and clear AFK."""
         if message.author.bot or message.guild is None:
             return
 
-        # Mark them active in the DB
+        # Mark activity for inactivity/AFK system
         self.mark_active(message.author)
 
-        # If they were AFK, remove AFK role + ghost nickname
+        # Award message XP (cap enforced in DB)
+        award_xp(
+            guild_id=message.guild.id,
+            user_id=message.author.id,
+            source="message",
+            amount=DEFAULT_MSG_XP,
+            daily_cap=DEFAULT_MSG_DAILY_CAP,
+        )
+
+        # Ensure + progress message contracts
+        ensure_contracts(message.guild.id, message.author.id)
+
+        completed = []
+        completed += add_contract_progress(message.guild.id, message.author.id, "messages_25", 1)
+        completed += add_contract_progress(message.guild.id, message.author.id, "messages_40", 1)
+        await self.payout_completed_contracts(message.author, completed)
+
+        # Clear AFK if needed
         await self.clear_afk_if_needed(message.author)
 
     @commands.Cog.listener()
@@ -192,19 +261,16 @@ class Activity(commands.Cog):
         before: discord.VoiceState,
         after: discord.VoiceState,
     ) -> None:
-        """Track voice activity as 'active'."""
+        """Track voice activity as 'active' for inactivity/AFK clearing."""
         if member.bot or member.guild is None:
             return
 
-        # Joined or moved voice channel
         if before.channel != after.channel:
             if after.channel is not None:
                 self.mark_active(member)
                 await self.clear_afk_if_needed(member)
-                print(f"[VOICE] Marked active from join/move: {member} in {after.channel}")
                 return
 
-        # Unmuted / undeafened / started streaming
         became_unmuted = before.self_mute and not after.self_mute
         became_undeaf = before.self_deaf and not after.self_deaf
         started_streaming = (not before.self_stream) and after.self_stream
@@ -212,38 +278,73 @@ class Activity(commands.Cog):
         if became_unmuted or became_undeaf or started_streaming:
             self.mark_active(member)
             await self.clear_afk_if_needed(member)
-            print(f"[VOICE] Marked active from voice action: {member}")
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member) -> None:
-        """Track activity when certain games are being played."""
+        """Track activity when certain games are being played (AFK/inactivity only)."""
         if after.bot or after.guild is None:
             return
 
-        # Look through activities for tracked games
         for activity in after.activities:
             if isinstance(activity, discord.Game) and activity.name in TRACKED_GAMES:
                 self.mark_active(after)
                 await self.clear_afk_if_needed(after)
-                print(f"[PRESENCE] Marked active from game: {after} playing {activity.name}")
                 break
+    
+    async def payout_completed_contracts(self, member: discord.Member, completed: list[dict]) -> None:
+        if not completed:
+            return
+
+        # De-dupe by contract_key
+        seen = set()
+        unique = []
+        for c in completed:
+            ck = c.get("contract_key")
+            if ck in seen:
+                continue
+            seen.add(ck)
+            unique.append(c)
+
+        for c in unique:
+            award_xp(
+                guild_id=member.guild.id,
+                user_id=member.id,
+                source="contract",
+                amount=c["reward_xp"],
+                daily_cap=999999,
+            )
+            add_coins(member.guild.id, member.id, c["reward_coins"])
+
+            try:
+                await member.send(
+                    f"🏁 **Contract Complete!**\n"
+                    f"{c['title']}\n"
+                    f"Rewards: **+{c['reward_xp']} XP** and **+{c['reward_coins']} Ghost Coins**."
+                )
+            except discord.Forbidden:
+                pass
+
+    @commands.command(name="resetall")
+    @commands.has_permissions(administrator=True)
+    async def resetall(self, ctx: commands.Context) -> None:
+        """
+        ADMIN ONLY: wipes today's contracts + all XP/coins/inventory/cooldowns for this server.
+        """
+        if not ctx.guild:
+            return
+
+        reset_all_progress(ctx.guild.id)
+        await ctx.send("✅ **RESET COMPLETE**: XP, coins, inventory, cooldowns, and **today's** contracts were wiped for this server.")
+
 
     # ------------------------ Commands ------------------------
 
     @commands.command(name="help")
     async def help_command(self, ctx: commands.Context) -> None:
-        """Show a list of bot commands."""
         await ctx.send(HELP_MESSAGE)
-
-
-    @commands.command()
-    async def ping(self, ctx: commands.Context) -> None:
-        """Simple heartbeat command."""
-        await ctx.send("Pong!")
 
     @commands.command(name="guildid")
     async def guildid(self, ctx: commands.Context) -> None:
-        """Small helper to see which GUILD_ID this server has."""
         if ctx.guild is None:
             await ctx.send("This command can only be used in a server.")
             return
@@ -251,12 +352,6 @@ class Activity(commands.Cog):
 
     @commands.command(name="lastseen")
     async def lastseen(self, ctx: commands.Context, member: discord.Member | None = None) -> None:
-        """
-        Show when a user was last active.
-        Usage:
-          !lastseen        -> yourself
-          !lastseen @user  -> specific user
-        """
         if ctx.guild is None:
             await ctx.send("This command can only be used in a server.")
             return
@@ -295,9 +390,7 @@ class Activity(commands.Cog):
 
         ago_str = " ".join(parts)
 
-        await ctx.send(
-            f"**{display_name}** was last active at **{when_str}** ({ago_str} ago)."
-        )
+        await ctx.send(f"**{display_name}** was last active at **{when_str}** ({ago_str} ago).")
 
 
 async def setup(bot: commands.Bot) -> None:

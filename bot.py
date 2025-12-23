@@ -3,6 +3,7 @@
 import os
 import asyncio
 
+import difflib
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -11,7 +12,6 @@ from discord import app_commands
 from db import init_db
 from config import (
     GUILD_ID,
-    HELP_MESSAGE,
     STAFF_CHANNEL_ID,
 )
 from db import (
@@ -23,12 +23,19 @@ from db import (
     get_guild_settings,
 )
 
+from discord.ext import tasks
+from zoneinfo import ZoneInfo
+from datetime import datetime
+from db import init_db, award_xp, get_top_weekly, get_user_weekly_rank, reset_weekly
+
+LONDON = ZoneInfo("Europe/London")
+
 load_dotenv()
 
 # ------------------------ BOT SETUP ------------------------
 
 intents = discord.Intents.default()
-intents.message_content = True   # can read command messages like !ping
+intents.message_content = False   # can read command messages like !ping
 intents.members = True           # needed for member info / roles
 intents.presences = True         # needed for game activity
 intents.voice_states = True      # needed for voice tracking
@@ -37,16 +44,11 @@ bot = commands.Bot(
     command_prefix="!",
     intents=intents,
     help_command=None,  # we provide our own !help
+    allowed_mentions=discord.AllowedMentions.none(),
 )
 
 
 # ------------------------ SLASH COMMANDS ------------------------
-
-@bot.tree.command(name="help", description="Show Phasmocademy bot commands")
-async def slash_help(interaction: discord.Interaction) -> None:
-    """Slash version of help – shows all commands."""
-    await interaction.response.send_message(HELP_MESSAGE, ephemeral=True)
-
 
 @bot.tree.command(name="clear", description="Delete recent messages in this channel")
 @app_commands.checks.has_permissions(administrator=True)
@@ -262,23 +264,26 @@ async def slash_unban(
 # ------------------------ EVENTS ------------------------
 
 @bot.event
-async def on_ready() -> None:
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    print("------")
+async def on_message(message: discord.Message):
+    # ✅ allow normal chat + your activity tracking listeners in cogs
+    # but DO NOT let discord.py treat messages as prefix commands
+    return
 
-    # Sync slash commands once per session
-    if not hasattr(bot, "synced"):
-        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        bot.synced = True
-        print("Slash commands synced to guild.")
+@bot.event
+async def on_ready():
+    print(f"[READY] Logged in as {bot.user} (ID: {bot.user.id})")
 
-    # Make sure DB exists
-    init_db()
+    guild = discord.Object(id=GUILD_ID)
 
-    # Ensure every guild has a settings row
-    for guild in bot.guilds:
-        ensure_guild_settings(guild.id, guild.name)
-        print(f"[SETTINGS] Ensured settings for guild: {guild.name} ({guild.id})")
+    # IMPORTANT: copy global commands into the guild then sync
+    bot.tree.copy_global_to(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
+
+    print(f"[SYNC] Synced to guild {GUILD_ID}. Commands synced: {len(synced)}")
+    for c in synced:
+        print(f" - /{c.name}")
+
+    print(f"[TREE] Local tree commands: {len(bot.tree.get_commands())}")
 
 @bot.event
 async def on_guild_join(guild: discord.Guild) -> None:
@@ -296,6 +301,7 @@ async def main() -> None:
         raise RuntimeError("DISCORD_TOKEN not set in .env file")
 
     # Load cogs as extensions, then start the bot
+    bot.remove_command("help")
     async with bot:
         await bot.load_extension("cogs.activity")
         await bot.load_extension("cogs.moderation")
@@ -303,6 +309,11 @@ async def main() -> None:
         await bot.load_extension("cogs.quiet_channels")
         await bot.load_extension("cogs.welcome")
         await bot.load_extension("cogs.leave_loggers")
+        await bot.load_extension("cogs.leveling")
+        await bot.load_extension("cogs.economy")
+        await bot.load_extension("cogs.investigation")
+        await bot.load_extension("cogs.help_menu")
+        await bot.load_extension("cogs.slash_commands")
         await bot.start(token)
 
 
