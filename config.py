@@ -14,6 +14,7 @@ GUILD_ID = 1442989805666308158          # your main server ID
 STAFF_CHANNEL_ID = 1445137949871182150  # where cleanup logs + dry-runs go
 INVITE_CHANNEL_ID = 1445176511614418955 # channel the bot will create invites from
 NOTIFY_CHANNEL_ID = 1445137949871182150 # channel for daily inactivity summaries
+LEAVE_LOG_CHANNEL_ID = 1452786769731784714  # For channel where leavers will be seen
 
 # Roles that should NEVER be kicked
 # NOTE: If you're testing and YOU have one of these roles,
@@ -32,6 +33,12 @@ QUIET_TIMEOUT_HOURS = 9  # change to whatever you want
 QUIET_CHANNEL_IDS = [
     1442989806517747724,  # lounge
 ]
+
+WELCOME_CHANNEL_ID = 1446632062160207912  # your welcome channel
+VERIFIED_ROLE_ID = 1445174648387010722   # your "Verified" role
+WELCOME_BG_PATH = "assets/welcome_bg.png"
+WELCOME_FONT_PATH = "assets/WelcomeFont.ttf"
+
 
 # AFK settings
 AFK_ROLE_NAME = "👻 AFK Spirit"  # must match the role name in Discord

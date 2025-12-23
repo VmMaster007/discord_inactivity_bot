@@ -22,6 +22,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS activity (
             guild_id    INTEGER NOT NULL,
             user_id     INTEGER NOT NULL,
+            username    TEXT,
             last_active INTEGER,
             PRIMARY KEY (guild_id, user_id)
         )
@@ -31,20 +32,25 @@ def init_db() -> None:
     conn.commit()
     conn.close()
 
-def update_last_active(guild_id: int, user_id: int) -> None:
+def update_last_active(guild_id: int, user_id: int, username: str) -> None:
     """Set last_active to 'now' for this guild/user."""
     now_ts = int(time.time())
     conn = get_connection()
     cur = conn.cursor()
 
+    guild.id,
+    author.id,
+    author.display_name,
+
     cur.execute(
-        """
-        INSERT INTO activity (guild_id, user_id, last_active)
-        VALUES (?, ?, ?)
-        ON CONFLICT(guild_id, user_id) DO UPDATE
-            SET last_active = excluded.last_active
-        """,
-        (guild_id, user_id, now_ts),
+    """
+    INSERT INTO activity (guild_id, user_id, username, last_active)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id) DO UPDATE
+        SET last_active = excluded.last_active,
+            username = excluded.username
+    """,
+    (guild_id, user_id, username, now_ts),
     )
 
     conn.commit()

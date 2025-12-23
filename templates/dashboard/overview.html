@@ -11,6 +11,7 @@
 </div>
 
 <div class="row g-3 mb-4">
+  <!-- Connected guilds -->
   <div class="col-12 col-md-6 col-xl-3">
     <div class="card card-panel h-100">
       <div class="card-body">
@@ -23,37 +24,76 @@
     </div>
   </div>
 
+  <!-- Auto kick enabled -->
   <div class="col-12 col-md-6 col-xl-3">
     <div class="card card-panel h-100">
       <div class="card-body">
-        <div class="text-muted small mb-1">Auto kick enabled</div>
-        <div class="h3 mb-0">{{ auto_kick_on }}/{{ total_guilds }}</div>
+        <div class="text-muted small mb-2">Auto kick enabled</div>
+
+        {% if current_guild %}
+          <form method="post" action="{% url 'dashboard:toggle_auto_kick' current_guild.guild_id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn btn-sm {% if auto_kick_on %}btn-success{% else %}btn-danger{% endif %}">
+              {% if auto_kick_on %}ON{% else %}OFF{% endif %}
+            </button>
+          </form>
+        {% else %}
+          <div class="h3 mb-0 text-danger">OFF</div>
+        {% endif %}
+
         <div class="text-muted small mt-2">
-          Servers where inactive members will be removed automatically.
+          Automatically remove inactive members on this server.
         </div>
       </div>
     </div>
   </div>
 
+  <!-- Inactivity notifications -->
   <div class="col-12 col-md-6 col-xl-3">
     <div class="card card-panel h-100">
       <div class="card-body">
-        <div class="text-muted small mb-1">Inactivity notifications</div>
-        <div class="h3 mb-0">{{ notifications_on }}/{{ total_guilds }}</div>
+        <div class="text-muted small mb-2">Inactivity notifications</div>
+
+        {% if current_guild %}
+          <form method="post" action="{% url 'dashboard:toggle_notifications' current_guild.guild_id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn btn-sm {% if notifications_on %}btn-success{% else %}btn-danger{% endif %}">
+              {% if notifications_on %}ON{% else %}OFF{% endif %}
+            </button>
+          </form>
+        {% else %}
+          <div class="h3 mb-0 text-danger">OFF</div>
+        {% endif %}
+
         <div class="text-muted small mt-2">
-          Servers getting daily inactivity reports.
+          Daily inactivity reports for this server.
         </div>
       </div>
     </div>
   </div>
 
+  <!-- AFK & quiet modules -->
   <div class="col-12 col-md-6 col-xl-3">
     <div class="card card-panel h-100">
       <div class="card-body">
-        <div class="text-muted small mb-1">AFK & quiet modules</div>
-        <div class="h3 mb-0">{{ afk_on }}/{{ total_guilds }}</div>
+        <div class="text-muted small mb-2">AFK & quiet modules</div>
+
+        {% if current_guild %}
+          <form method="post" action="{% url 'dashboard:toggle_afk' current_guild.guild_id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn btn-sm {% if afk_on %}btn-success{% else %}btn-danger{% endif %}">
+              {% if afk_on %}ON{% else %}OFF{% endif %}
+            </button>
+          </form>
+        {% else %}
+          <div class="h3 mb-0 text-danger">OFF</div>
+        {% endif %}
+
         <div class="text-muted small mt-2">
-          AFK & quiet channel tools currently switched on.
+          AFK + quiet channel tools for this server.
         </div>
       </div>
     </div>

@@ -301,6 +301,8 @@ async def main() -> None:
         await bot.load_extension("cogs.moderation")
         await bot.load_extension("cogs.housekeeping")
         await bot.load_extension("cogs.quiet_channels")
+        await bot.load_extension("cogs.welcome")
+        await bot.load_extension("cogs.leave_loggers")
         await bot.start(token)
 
 

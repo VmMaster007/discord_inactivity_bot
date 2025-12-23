@@ -38,7 +38,11 @@ class Activity(commands.Cog):
         if member.guild is None:
             return  # only care about guilds
 
-        update_last_active(member.guild.id, member.id)
+        update_last_active(
+            member.guild.id,
+            member.id,
+            member.display_name
+        )
 
     # ------------------------ AFK helpers ------------------------
 

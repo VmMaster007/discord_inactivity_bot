@@ -1,0 +1,58 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Last Active</h1>
+    <p class="text-muted mb-0">
+      Showing last activity{% if current_guild %} for {{ current_guild.guild_name }}{% endif %}.
+    </p>
+  </div>
+</div>
+
+<div class="card card-panel">
+  <div class="card-body">
+    {% if not current_guild %}
+      <div class="text-muted">No guild configured yet.</div>
+    {% else %}
+      <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>User ID</th>
+              <th>Last Active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+              <tr>
+                <!-- Username -->
+                <td>{{ u.username }}</td>
+
+                <!-- Discord ID -->
+                <td class="text-muted">{{ u.user_id }}</td>
+
+                <!-- Last active timestamp -->
+                <td>
+                  {% if u.last_active %}
+                    {{ u.last_active|date:"Y-m-d H:i:s" }} UTC
+                  {% else %}
+                    <span class="text-muted">Unknown</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="3" class="text-muted text-center">
+                  No activity found in the bot database.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

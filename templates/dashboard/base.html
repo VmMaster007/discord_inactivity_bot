@@ -40,6 +40,11 @@
         >
           Overview
         </a>
+          <a class="nav-link {% if request.path == '/activity/' %}active{% endif %}"
+          href="{% url 'dashboard:activity_list' %}">
+          Last active
+        </a>
+
         <a
           href="{% url 'dashboard:guild_settings_list' %}"
           class="nav-link {% if request.resolver_match.url_name == 'guild_settings_list' %}active{% endif %}"
