@@ -314,6 +314,7 @@ async def main() -> None:
         await bot.load_extension("cogs.investigation")
         await bot.load_extension("cogs.help_menu")
         await bot.load_extension("cogs.slash_commands")
+        await bot.load_extension("cogs.tickets")
         await bot.start(token)
 
 

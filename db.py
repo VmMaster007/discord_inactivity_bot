@@ -15,7 +15,7 @@ DB_PATH = "activity.db"
 # Connection helper
 # -----------------------------
 def get_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(DB_PATH, timeout=30)
 
 
 # -----------------------------
@@ -73,11 +73,37 @@ def init_db() -> None:
     # Inactivity activity table
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS activity (
-            guild_id    INTEGER NOT NULL,
-            user_id     INTEGER NOT NULL,
-            username    TEXT,
-            last_active INTEGER,
+        CREATE TABLE IF NOT EXISTS ticket_links (
+            guild_id           INTEGER NOT NULL,
+            ticket_number      INTEGER NOT NULL,
+            intake_thread_id   INTEGER,
+            support_channel_id INTEGER,
+            created_at         INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, ticket_number)
+        )
+        """
+    )
+
+    # Ticket number counter (ticket-001, ticket-002, ...)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_counters (
+            guild_id INTEGER PRIMARY KEY,
+            last_number INTEGER NOT NULL
+        )
+        """
+    )
+
+    # AFK / ticket kick exemptions (skip auto-kick until exempt_until)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS kick_exemptions (
+            guild_id     INTEGER NOT NULL,
+            user_id      INTEGER NOT NULL,
+            exempt_until INTEGER NOT NULL, -- unix timestamp (UTC)
+            reason       TEXT,
+            created_by   INTEGER,
+            created_at   INTEGER NOT NULL,
             PRIMARY KEY (guild_id, user_id)
         )
         """
@@ -716,3 +742,170 @@ def reset_all_progress(guild_id: int) -> None:
 
     conn.commit()
     conn.close()
+
+# -----------------------------
+# Kick exemption helpers (Tickets / AFK)
+# -----------------------------
+
+def set_kick_exemption(
+    guild_id: int,
+    user_id: int,
+    exempt_until_ts: int,
+    reason: str = "",
+    created_by: Optional[int] = None,
+) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    cur.execute(
+        """
+        INSERT INTO kick_exemptions (guild_id, user_id, exempt_until, reason, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, user_id) DO UPDATE SET
+            exempt_until = excluded.exempt_until,
+            reason       = excluded.reason,
+            created_by   = excluded.created_by
+        """,
+        (guild_id, user_id, exempt_until_ts, reason, created_by, now_ts),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_kick_exemption_until(guild_id: int, user_id: int) -> Optional[int]:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT exempt_until FROM kick_exemptions WHERE guild_id=? AND user_id=?",
+        (guild_id, user_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return int(row[0]) if row else None
+
+
+def clear_kick_exemption(guild_id: int, user_id: int) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM kick_exemptions WHERE guild_id=? AND user_id=?",
+        (guild_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+def next_ticket_number(guild_id: int) -> int:
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT last_number FROM ticket_counters WHERE guild_id=?", (guild_id,))
+    row = cur.fetchone()
+
+    if row is None:
+        n = 1
+        cur.execute("INSERT INTO ticket_counters (guild_id, last_number) VALUES (?, ?)", (guild_id, n))
+    else:
+        n = int(row[0]) + 1
+        cur.execute("UPDATE ticket_counters SET last_number=? WHERE guild_id=?", (n, guild_id))
+
+    conn.commit()
+    conn.close()
+    return n
+
+def upsert_ticket_link(
+    guild_id: int,
+    ticket_number: int,
+    intake_thread_id: int | None = None,
+    support_channel_id: int | None = None,
+) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    # Ensure row exists
+    cur.execute(
+        """
+        INSERT INTO ticket_links (guild_id, ticket_number, intake_thread_id, support_channel_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, ticket_number) DO UPDATE SET
+            intake_thread_id   = COALESCE(excluded.intake_thread_id, ticket_links.intake_thread_id),
+            support_channel_id = COALESCE(excluded.support_channel_id, ticket_links.support_channel_id)
+        """,
+        (guild_id, ticket_number, intake_thread_id, support_channel_id, now_ts),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_ticket_link_by_thread(guild_id: int, thread_id: int) -> tuple[int, int | None, int | None] | None:
+    """
+    Returns (ticket_number, intake_thread_id, support_channel_id)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT ticket_number, intake_thread_id, support_channel_id
+        FROM ticket_links
+        WHERE guild_id=? AND intake_thread_id=?
+        """,
+        (guild_id, thread_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return int(row[0]), (int(row[1]) if row[1] else None), (int(row[2]) if row[2] else None)
+
+
+def get_ticket_link_by_support_channel(guild_id: int, channel_id: int) -> tuple[int, int | None, int | None] | None:
+    """
+    Returns (ticket_number, intake_thread_id, support_channel_id)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT ticket_number, intake_thread_id, support_channel_id
+        FROM ticket_links
+        WHERE guild_id=? AND support_channel_id=?
+        """,
+        (guild_id, channel_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return int(row[0]), (int(row[1]) if row[1] else None), (int(row[2]) if row[2] else None)
+
+def list_kick_exemptions(guild_id: int) -> list[dict]:
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT user_id, exempt_until, reason, created_by, created_at
+        FROM kick_exemptions
+        WHERE guild_id=?
+        ORDER BY exempt_until DESC
+        """,
+        (guild_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def clear_all_expired_exemptions(guild_id: int) -> int:
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM kick_exemptions WHERE guild_id=? AND exempt_until < ?",
+        (guild_id, now_ts),
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted

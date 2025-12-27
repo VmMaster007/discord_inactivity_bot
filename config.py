@@ -71,6 +71,26 @@ AFK_NICK_PREFIX = "👻 "          # what to add in front of nicknames
 # Games that count as "activity" when played (presence-based)
 TRACKED_GAMES = {"Phasmophobia"}
 
+# ------------------------ TICKETS CONFIG ------------------------
+
+# ------------------------ TICKETS CONFIG ------------------------
+
+# Channel where the bot will create ticket threads (this is where you post /ticketpanel)
+TICKETS_INTAKE_CHANNEL_ID = 1454491287595126785  # <-- paste your channel ID here
+
+# Role to ping when user selects "Talk to staff"
+STAFF_ROLE_ID = 1444715664110649394
+
+# Where bug reports get forwarded (MODS ONLY channel)
+BUG_REPORTS_CHANNEL_ID = 1454503402674458787 # <-- set this to a private mods-only channel ID
+
+# Category where staff-support ticket CHANNELS are created
+SUPPORT_CATEGORY_ID = 1454496166501941298 # <-- set this to your "Support" category ID
+
+# AFK exemption approval channel (mods only)
+AFK_APPROVAL_CHANNEL_ID = 1454513818381189130 # <-- set this
+
+
 # Timezone for display
 UK_TZ = ZoneInfo("Europe/London")
 

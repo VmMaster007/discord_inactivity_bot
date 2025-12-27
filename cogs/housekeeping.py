@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from discord.ext import commands, tasks
 import discord
 
-from db import get_inactive_users, get_guild_settings
+from db import get_inactive_users, get_guild_settings, get_kick_exemption_until
 
 from config import (
     GUILD_ID,
@@ -97,6 +97,14 @@ class Housekeeping(commands.Cog):
             # Skip protected roles
             if any(role.id in PROTECTED_ROLE_IDS for role in member.roles):
                 continue
+
+            # Skip members with an active exemption (tickets/AFK)
+            exempt_until = get_kick_exemption_until(guild.id, member.id)
+            if exempt_until is not None:
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                if now_ts < exempt_until:
+                    # Still exempt; skip kicking
+                    continue
 
             any_candidates = True
             last_seen_str = format_timestamp(last_active_ts)
