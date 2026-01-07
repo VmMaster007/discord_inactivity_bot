@@ -1,37 +1,51 @@
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib import messages
-from django.views.decorators.http import require_POST
-from django.db import connections
 from datetime import datetime, timezone
-from django.utils.timezone import make_aware, is_naive
 
-from .models import GuildSettings
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connections
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
+
+from db import clear_kick_exemption, list_kick_exemptions
 from .forms import GuildSettingsForm
+from .models import GuildSettings
+
 
 
 @login_required
 def overview(request):
-    """Main dashboard overview page (single-guild focus)."""
     guilds = GuildSettings.objects.all().order_by("guild_name", "guild_id")
     total_guilds = guilds.count()
 
-    # Use the first/only guild as the "current" one for ON/OFF toggles
-    current_guild = guilds.first()
+    # Prefer selected guild from session, else fall back to first guild
+    session_guild_id = request.session.get("current_guild_id")
+    current_guild = None
+
+    if session_guild_id:
+        current_guild = GuildSettings.objects.filter(guild_id=session_guild_id).first()
+
+    if current_guild is None:
+        current_guild = guilds.first()
+        if current_guild:
+            request.session["current_guild_id"] = current_guild.guild_id
 
     context = {
+        "guilds": guilds,
         "total_guilds": total_guilds,
         "current_guild": current_guild,
-
-        # Booleans for THIS server
         "auto_kick_on": bool(current_guild and current_guild.auto_kick_enabled),
         "notifications_on": bool(current_guild and current_guild.inactivity_notifications_enabled),
         "afk_on": bool(current_guild and current_guild.afk_system_enabled),
-
-        # If you want to add a toggle later
         "quiet_ping_on": bool(current_guild and current_guild.quiet_ping_enabled),
     }
     return render(request, "dashboard/overview.html", context)
+
+@login_required
+def set_current_guild(request, guild_id: int):
+    gs = get_object_or_404(GuildSettings, pk=guild_id)
+    request.session["current_guild_id"] = gs.guild_id
+    messages.success(request, f"Selected guild: {gs.guild_name or gs.guild_id}")
+    return redirect("dashboard:overview")
 
 
 @login_required
@@ -96,6 +110,7 @@ def toggle_afk(request, guild_id):
 
 @login_required
 def activity_list(request):
+
     current_guild = GuildSettings.objects.all().order_by("guild_name", "guild_id").first()
 
     users = []
@@ -130,3 +145,74 @@ def activity_list(request):
         "dashboard/activity_list.html",
         {"current_guild": current_guild, "users": users},
     )
+
+def tickets_settings(request):
+    guild_id = request.session.get("current_guild_id")
+    if not guild_id:
+        first = GuildSettings.objects.all().order_by("guild_name", "guild_id").first()
+        if not first:
+            messages.error(request, "No guilds found yet.")
+            return redirect("dashboard:overview")
+        guild_id = first.guild_id
+        request.session["current_guild_id"] = guild_id
+
+    gs = GuildSettings.objects.get(guild_id=guild_id)
+
+    def to_int(v):
+        v = (v or "").strip()
+        return int(v) if v else None
+
+    if request.method == "POST":
+        gs.tickets_enabled = request.POST.get("tickets_enabled") == "on"
+
+        gs.ticket_panel_channel_id = to_int(request.POST.get("ticket_panel_channel_id"))
+        gs.staff_role_id = to_int(request.POST.get("staff_role_id"))
+        gs.support_category_id = to_int(request.POST.get("support_category_id"))
+        gs.bug_reports_channel_id = to_int(request.POST.get("bug_reports_channel_id"))
+        gs.afk_approval_channel_id = to_int(request.POST.get("afk_approval_channel_id"))
+
+        gs.ticket_panel_title = (request.POST.get("ticket_panel_title") or "Ticket").strip()
+        gs.ticket_panel_description = (request.POST.get("ticket_panel_description") or "").strip()
+
+        gs.save()
+        messages.success(request, "Ticket settings saved.")
+        return redirect("dashboard:tickets_settings")
+
+    return render(request, "dashboard/tickets_settings.html", {"gs": gs})
+
+@login_required
+def kick_exemptions(request):
+    guild_id = request.session.get("current_guild_id")
+    if not guild_id:
+        first = GuildSettings.objects.all().order_by("guild_name", "guild_id").first()
+        if not first:
+            messages.error(request, "No guilds found yet.")
+            return redirect("dashboard:overview")
+        guild_id = first.guild_id
+        request.session["current_guild_id"] = guild_id
+
+    if request.method == "POST":
+        user_id = int(request.POST.get("user_id"))
+        clear_kick_exemption(guild_id, user_id)
+        messages.success(request, "Exemption removed.")
+        return redirect("dashboard:kick_exemptions")
+
+    rows = list_kick_exemptions(guild_id)
+    now = datetime.now(timezone.utc)
+    now_ts = int(now.timestamp())
+
+    for r in rows:
+        until_dt = datetime.fromtimestamp(int(r["exempt_until"]), tz=timezone.utc)
+        r["until_str"] = until_dt.strftime("%d/%m/%Y %H:%M UTC")
+        r["active"] = int(r["exempt_until"]) > now_ts
+
+        if r["active"]:
+            delta = until_dt - now
+            days = delta.days
+            hours = delta.seconds // 3600
+            r["time_left"] = f"{days}d {hours}h"
+        else:
+            r["time_left"] = "Expired"
+
+    return render(request, "dashboard/kick_exemptions.html", {"rows": rows})
+

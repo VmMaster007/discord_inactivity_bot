@@ -1,0 +1,62 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h3 mb-1">Kick Exemptions</h1>
+    <p class="text-muted mb-0">Who is exempt from inactivity kicks and for how long.</p>
+  </div>
+</div>
+
+<div class="card card-panel">
+  <div class="card-body">
+
+    <div class="table-responsive">
+      <table class="table table-dark table-striped align-middle mb-0">
+        <thead>
+          <tr>
+            <th>User ID</th>
+            <th>Until</th>
+            <th>Time left</th>
+            <th>Status</th>
+            <th>Reason</th>
+            <th>Created by</th>
+            <th>Remove</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.user_id }}</td>
+            <td>{{ r.until_str }}</td>
+            <td>{{ r.time_left }}</td>
+            <td>
+              {% if r.active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Expired</span>
+              {% endif %}
+            </td>
+            <td>{{ r.reason|default:"" }}</td>
+            <td>{{ r.created_by|default:"" }}</td>
+            <td>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="user_id" value="{{ r.user_id }}">
+                <button class="btn btn-sm btn-danger">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="7" class="text-muted">No exemptions found.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

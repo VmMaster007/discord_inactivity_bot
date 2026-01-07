@@ -895,17 +895,3 @@ def list_kick_exemptions(guild_id: int) -> list[dict]:
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def clear_all_expired_exemptions(guild_id: int) -> int:
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM kick_exemptions WHERE guild_id=? AND exempt_until < ?",
-        (guild_id, now_ts),
-    )
-    deleted = cur.rowcount
-    conn.commit()
-    conn.close()
-    return deleted

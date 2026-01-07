@@ -60,6 +60,19 @@
         <a href="#" class="nav-link disabled">
           Logs & history (coming soon)
         </a>
+        <a
+          href="{% url 'dashboard:tickets_settings' %}"
+          class="nav-link {% if request.resolver_match.url_name == 'tickets_settings' %}active{% endif %}"
+        >
+          Tickets
+        </a>
+
+        <a
+          href="{% url 'dashboard:kick_exemptions' %}"
+          class="nav-link {% if request.resolver_match.url_name == 'kick_exemptions' %}active{% endif %}"
+        >
+          Kick Exemptions
+        </a>
       </nav>
 
       <div class="mt-auto small text-muted">
